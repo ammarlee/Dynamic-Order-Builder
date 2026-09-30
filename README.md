@@ -4,6 +4,26 @@ Admin page for building an order against one warehouse. The admin chooses produc
 
 There is no authentication, customer form, or dashboard. The only route is `/`.
 
+## Assumptions
+
+The brief leaves a few behaviors unspecified. These are the choices this implementation makes.
+
+**A warehouse is not required before search or add.** Product search is catalog-only (`GET /products?search=`). It returns the product and its variants, with no warehouse, price, or stock. The admin can add a variant before choosing a warehouse. That line stays on the order as pending: unit price, line total, and stock show `—`, and the line discount is disabled. Quantity is still shown and starts at `1`. Price and stock are applied only after a warehouse is selected.
+
+**Search is not stock validation.** Because search has no warehouse context, it is not treated as proof that a variant is in stock or that the price is current. Stock and price are loaded from `GET /warehouses/:id/stock` when a warehouse is selected, and again when a variant is added after a warehouse is already selected. `POST /orders` checks them once more at submit time, so a change on the server between add and submit can still fail the order.
+
+**Quantity cannot go above the known stock.** Once a line has a stock figure, the quantity cannot be typed or stepped above that available quantity. Pending lines have no stock cap, because no warehouse stock exists yet. If stock later drops below the quantity already on the line, the quantity is not reduced automatically. The line stays, shows that only the lower amount is available, and Create Order stays disabled until the admin fixes it.
+
+**The submitted unit price is the price the admin accepted.** The sample order body only sends `product_id`, `variant_id`, and `quantity`. This implementation also sends `unit_price` on each item. The server compares that value with the current warehouse price. If they differ, it returns `price_changed` with the submitted price and the new price. The line is kept. The new price is not applied until the admin accepts it.
+
+**Discount is a fixed amount, on each line and on the order.** The sample payload shows an order-level `discount` such as `1.000`, which is a number, not a percentage. Each line has its own discount, from `0` up to that line’s total (`quantity × unit price`). The order `discount` is the sum of those line discounts, not a separate percentage and not a second amount typed in the summary. The payload sends both: each item’s `discount`, and the order `discount` equal to their sum. A line discount above that line’s total blocks submit.
+
+**The same variant is one line.** A product and variant already on the order are not added again as a second line. Adding it again increases that line’s quantity by 1, as long as stock allows it.
+
+**A warehouse change does not remove lines.** Every existing line is rechecked against the new warehouse. A line with no stock row stays and is marked unavailable. A lower stock level or a different price is shown on the line. The previous quantity and the accepted unit price stay until the admin changes them. Clearing the warehouse puts every line back to pending and drops the accepted price, discount, and stock.
+
+**Money is USD, rounded to cents.** Prices in the brief use three decimal places (for example `4.500`). Amounts here are US dollars, rounded to two decimal places.
+
 ## Run
 
 Use two terminals. Node `^22.18.0` or `>=24.12.0` is required.
