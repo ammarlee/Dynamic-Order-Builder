@@ -1,0 +1,97 @@
+:root {
+  color-scheme: light;
+  --ink: #1c1917;
+  --ink-soft: #44403c;
+  --muted: #78716c;
+  --faint: #a8a29e;
+  --danger: #9a3412;
+  --warn-border: #c4845a;
+  --surface-page: #f4f0e6;
+  --surface-card: #fbf8f2;
+  --surface-raised: #fffdf9;
+  --surface-hover: #f7f4ee;
+  --border: #e7e2d6;
+  --border-card: #e8e2d6;
+  --border-input: #e4dfd4;
+  --input-bg-disabled: #f3efe6;
+  --order-line-columns: minmax(8rem, 1.6fr) minmax(6rem, 1fr) 9.75rem 5rem 6.5rem 5.5rem 5rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--surface-page);
+  color: var(--ink);
+  font-family: var(--p-font-family, system-ui, sans-serif);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.section-title {
+  margin-bottom: 0.3rem;
+  color: var(--ink);
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.section-lead {
+  margin-bottom: 1.05rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 960px) {
+  .order-cell {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .order-cell::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: left;
+  }
+}
+
+.p-confirmdialog {
+  width: 28rem;
+  max-width: calc(100vw - 2rem);
+}
+
+.p-confirmdialog .p-dialog-content {
+  align-items: flex-start;
+}
+
+.p-confirmdialog-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
