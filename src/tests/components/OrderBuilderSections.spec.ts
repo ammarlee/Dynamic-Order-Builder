@@ -152,6 +152,45 @@ describe('SearchIndex', () => {
       vi.useRealTimers()
     }
   })
+
+  it('shows suggestion badges on focus and searches the selected one', async () => {
+    vi.useFakeTimers()
+    searchProductsMock.mockClear()
+    searchProductsMock.mockResolvedValue([])
+
+    const wrapper = mount(SearchIndex, {
+      props: { warehouseId: 1 },
+      attachTo: document.body,
+    })
+
+    try {
+      expect(wrapper.find('.search-dropdown').exists()).toBe(false)
+
+      await wrapper.get('input').trigger('focusin')
+
+      const badges = wrapper.findAll('.search-suggestions__badge')
+      expect(badges.map((badge) => badge.text())).toEqual([
+        'Premium Bag',
+        'Canvas Tote',
+        'Travel Backpack',
+      ])
+
+      await badges[1]!.trigger('click')
+      await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+
+      expect((wrapper.get('input').element as HTMLInputElement).value).toBe('Canvas Tote')
+      expect(searchProductsMock).toHaveBeenCalledWith('Canvas Tote', expect.any(AbortSignal))
+      expect(wrapper.find('.search-suggestions').exists()).toBe(false)
+
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      await nextTick()
+
+      expect(wrapper.find('.search-dropdown').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('SearchResultItem', () => {

@@ -7,11 +7,22 @@
   >
     <div class="field">
       <label class="field-label" for="product-search">Product search</label>
-      <div ref="searchRoot" class="search-anchor field-control" @pointerdown="openResults">
+      <div
+        ref="searchRoot"
+        class="search-anchor field-control"
+        @pointerdown="openDropdown"
+        @focusin="openDropdown"
+      >
         <SearchInput id="product-search" v-model="query" />
 
-        <div v-if="resultsVisible" class="search-dropdown" role="region" aria-label="Search results">
-          <SearchSkeleton v-if="isLoading" />
+        <div v-if="dropdownVisible" class="search-dropdown" role="region" aria-label="Search results">
+          <SearchSuggestions
+            v-if="!hasQuery"
+            :suggestions="SEARCH_SUGGESTIONS"
+            @select="onSuggestionSelect"
+          />
+
+          <SearchSkeleton v-else-if="isLoading" />
 
           <ApiFailureNotice
             v-else-if="isError && errorMessage"
@@ -42,6 +53,8 @@ import ApiFailureNotice from '@/components/ui/ApiFailureNotice.vue'
 import SectionCard from '@/components/ui/SectionCard.vue'
 import SearchInput from '@/components/pages/orders/create/search/components/input/SearchInput.vue'
 import SearchSkeleton from '@/components/pages/orders/create/search/components/skeleton/SearchSkeleton.vue'
+import SearchSuggestions from '@/components/pages/orders/create/search/components/suggestions/SearchSuggestions.vue'
+import { SEARCH_SUGGESTIONS } from '@/constants/search'
 import { useClickOutside } from '@/composables/useClickOutside'
 import { useProductSearch } from '@/composables/useProductSearch'
 import type { OrderLine } from '@/types/order'
@@ -71,7 +84,7 @@ function onAdd(item: ProductSearchResult) {
 
 const warehouseSelected = computed(() => props.warehouseId != null)
 const searchRoot = ref<HTMLElement | null>(null)
-const resultsDismissed = ref(false)
+const dropdownOpen = ref(false)
 const {
   query,
   results,
@@ -84,19 +97,27 @@ const {
   retry,
   clear,
 } = useProductSearch()
-const resultsVisible = computed(() => showResults.value && !resultsDismissed.value)
+const hasQuery = computed(() => query.value.trim().length > 0)
+const dropdownVisible = computed(
+  () => dropdownOpen.value && (!hasQuery.value || showResults.value),
+)
 
-function openResults() {
-  resultsDismissed.value = false
+function openDropdown() {
+  dropdownOpen.value = true
+}
+
+function onSuggestionSelect(suggestion: string) {
+  query.value = suggestion
+  searchRoot.value?.querySelector('input')?.focus()
 }
 
 useClickOutside(searchRoot, () => {
-  resultsDismissed.value = true
+  dropdownOpen.value = false
   clear()
 })
 
-watch(query, () => {
-  resultsDismissed.value = false
+watch(hasQuery, (value) => {
+  if (value) dropdownOpen.value = true
 })
 </script>
 
