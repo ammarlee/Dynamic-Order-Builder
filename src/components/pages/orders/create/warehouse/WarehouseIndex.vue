@@ -23,6 +23,12 @@
         />
       </div>
       <p class="field-hint">Changing warehouse revalidates every line already in the order.</p>
+
+      <ApiFailureNotice
+        v-if="validationError"
+        :message="validationError"
+        @retry="onRetryValidation"
+      />
     </div>
   </SectionCard>
 </template>
@@ -41,11 +47,13 @@ defineProps<{
   selectedId: number | null
   loading: boolean
   error: string | null
+  validationError: string | null
 }>()
 
 const emit = defineEmits<{
   'update:selectedId': [warehouseId: number | null]
   retry: []
+  retryValidation: []
 }>()
 
 function onSelect(warehouseId: number | null) {
@@ -54,6 +62,10 @@ function onSelect(warehouseId: number | null) {
 
 function onRetry() {
   emit('retry')
+}
+
+function onRetryValidation() {
+  emit('retryValidation')
 }
 </script>
 

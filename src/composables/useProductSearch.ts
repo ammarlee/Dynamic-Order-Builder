@@ -3,6 +3,7 @@ import { UI_MESSAGES } from '@/constants/messages'
 import { debounce } from '@/helpers/debounce'
 import { isAbortError } from '@/helpers/async'
 import { searchProducts } from '@/services/products'
+import { ApiError } from '@/services/api'
 import type { CatalogProduct } from '@/types/product'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -50,7 +51,10 @@ export function useProductSearch() {
 
       results.value = []
       status.value = 'error'
-      errorMessage.value = UI_MESSAGES.products.loadFailed
+      errorMessage.value =
+        error instanceof ApiError && error.message
+          ? error.message
+          : UI_MESSAGES.products.loadFailed
     }
   }
 

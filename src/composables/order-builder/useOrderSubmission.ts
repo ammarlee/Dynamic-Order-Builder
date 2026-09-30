@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { UI_MESSAGES } from '@/constants/messages'
+import { ApiError } from '@/services/api'
 import { createOrder, type CreateOrderPayload, type CreateOrderResult } from '@/services/orders'
 
 export function useOrderSubmission() {
@@ -14,8 +15,11 @@ export function useOrderSubmission() {
 
     try {
       return await createOrder(payload)
-    } catch {
-      unexpectedError.value = UI_MESSAGES.order.submitFailed
+    } catch (error) {
+      unexpectedError.value =
+        error instanceof ApiError && error.message
+          ? error.message
+          : UI_MESSAGES.order.submitFailed
       return null
     } finally {
       submitting.value = false

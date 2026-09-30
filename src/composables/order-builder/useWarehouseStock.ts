@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { UI_MESSAGES } from '@/constants/messages'
 import { isAbortError } from '@/helpers/async'
 import { validateWarehouseStock } from '@/services/stock'
+import { ApiError } from '@/services/api'
 import type { WarehouseValidationResult } from '@/types/stock'
 
 export type WarehouseValidationStatus = 'idle' | 'loading' | 'error'
@@ -40,7 +41,10 @@ export function useWarehouseStock() {
       if (id !== requestId || isAbortError(error)) return null
 
       status.value = 'error'
-      errorMessage.value = UI_MESSAGES.warehouses.validationFailed
+      errorMessage.value =
+        error instanceof ApiError && error.message
+          ? error.message
+          : UI_MESSAGES.warehouses.validationFailed
       return null
     }
   }

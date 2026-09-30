@@ -16,8 +16,10 @@
         :selected-id="warehouseId"
         :loading="warehousesLoading"
         :error="warehousesError"
+        :validation-error="warehouseValidationError"
         @update:selected-id="selectWarehouse"
         @retry="loadWarehouses"
+        @retry-validation="retryWarehouseValidation"
       />
 
       <OrderListIndex
@@ -28,12 +30,7 @@
         @update-discount="updateDiscount"
         @remove="removeItem"
         @accept-price="acceptCurrentPrice"
-      >
-        <OrderValidationIndex
-          :warehouse-error="warehouseValidationError"
-          @retry="retryWarehouseValidation"
-        />
-      </OrderListIndex>
+      />
 
       <div class="order-builder__summary">
         <OrderSummaryIndex
@@ -50,7 +47,6 @@
 <script setup lang="ts">
 import OrderListIndex from '@/components/pages/orders/create/order-list/OrderListIndex.vue'
 import OrderSummaryIndex from '@/components/pages/orders/create/summary/OrderSummaryIndex.vue'
-import OrderValidationIndex from '@/components/pages/orders/create/validation/OrderValidationIndex.vue'
 import SearchIndex from '@/components/pages/orders/create/search/SearchIndex.vue'
 import ServerControlsIndex from '@/components/pages/orders/create/server-controls/ServerControlsIndex.vue'
 import WarehouseIndex from '@/components/pages/orders/create/warehouse/WarehouseIndex.vue'
