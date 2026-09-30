@@ -1,118 +1,226 @@
 # Order Builder
 
-Admin page for creating an order against a selected warehouse. The frontend keeps the admin's accepted quantity and unit price separate from the latest server stock and price, then reconciles conflicts instead of overwriting them.
+Admin page for building an order against one warehouse. The admin chooses products, a warehouse, quantities, and a discount on each line. The page keeps the accepted unit price and quantity separate from the latest server stock and price, and asks the admin to resolve conflicts before the order is created.
 
-The task does not define customer information, so customer management is intentionally outside the scope of this implementation.
+There is no authentication, customer form, or dashboard. The only route is `/`.
 
-The task mentions line discounts but provides an order-level discount in the order payload. This implementation uses an order-level discount. Each line shows `—` in the discount column. The summary is the only place the discount is calculated.
+## Run
 
-## Run the app
-
-Use two terminals.
+Use two terminals. Node `^22.18.0` or `>=24.12.0` is required.
 
 ```sh
-pnpm install
-pnpm server
+npm install
+npm run server
 ```
 
 ```sh
-pnpm dev
+npm run dev
 ```
 
-The Vue app runs on Vite (usually `http://localhost:5173`). JSON Server runs on `http://localhost:3001`. Vite proxies `/api` to JSON Server, so the UI never calls JSON Server directly.
+| Process | Address |
+| --- | --- |
+| Vue app (Vite) | http://localhost:5173 |
+| JSON Server | http://localhost:3001 |
+
+The UI calls `/api`. Vite strips that prefix and proxies the request to JSON Server.
 
 ```sh
-pnpm test:unit -- --run
-pnpm type-check
+npm run test:unit -- --run
+npm run type-check
+npm run lint
+npm run build
 ```
 
-## Architecture
+## Page
+
+The create-order page is five sections plus a development dialog.
 
 ```text
 pages/orders/create/index.vue
   └── components/pages/orders/create/OrderBuilderIndex.vue
-        ├── WarehouseIndex
         ├── SearchIndex
+        ├── WarehouseIndex
         ├── OrderListIndex
+        │     └── OrderValidationIndex
         ├── OrderSummaryIndex
-        ├── OrderValidationIndex
         └── ServerControlsIndex
 ```
 
-Services (`src/services`) are grouped by feature. Each feature exposes its public functions from an `index.ts`. API calls, DTO mapping, and feature-specific error handling stay inside that feature. Shared HTTP access stays in `src/services/api`.
+**Search** looks up products by name. Results are products and variants only: no warehouse, price, or stock. Typing waits 300ms, then the request runs. Suggestions are Premium Bag, Canvas Tote, and Travel Backpack. Add is available before a warehouse is selected.
 
-Composables (`src/composables`) own reactive behavior: search debounce, warehouse validation, submission, and the order itself. `useOrderBuilder` is the business-logic boundary. Presentational components receive props and emit events. They do not call the API or mutate order state.
+**Warehouse** loads the warehouse list on mount. Stock and price follow the selected warehouse. Changing it revalidates every line already on the order.
 
-Shared helpers (`src/helpers`) own generic utilities such as money rounding and debouncing. Order pricing, validation, and payload mapping live in `services/orders/helpers`.
+**Order items** is the current order. Each line shows quantity, unit price, a line discount, line total, and available stock. Removing a line asks for confirmation.
 
-## API
+**Summary** shows subtotal, the sum of line discounts, and the final total in USD. **Create Order** stays disabled until the order can be submitted.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/warehouses` | Warehouse list |
-| GET | `/products?search=` | Search the catalog. Returns products and variants only, with no warehouse, price, or stock |
-| POST | `/warehouse-stock/validate` | Revalidate only the variants currently in the order |
-| PATCH | `/warehouseStock/:id` | Update a stock row (development controls) |
-| POST | `/warehouseStock` | Create a stock row when one does not exist yet |
-| POST | `/orders` | Create an order. Returns `409` when stock or price no longer matches |
-| GET | `/catalog` | Product catalog for Server Controls |
-| GET/PATCH | `/dev-settings` | Toggle simulated API failures |
+**Server Controls** edits a stock row's available quantity and price, or creates the row when one does not exist. It can also force the next product search, warehouse stock check, or order submission to fail. Those flags live in memory on the server and reset when the server restarts.
 
-Artificial delays:
+## How an order is built
 
-- Product search: 500–1000ms
-- Warehouse validation: 700–1200ms
-- Order submission: 800–1500ms
+A line is unique by `productId` and `variantId`. Adding the same variant again increases its quantity by 1.
 
-Server Controls can also force the next search, validation, or submit request to fail. Those switches are development-only and are hidden in production builds.
+### Pending lines
+
+A product added before a warehouse is selected is **pending**. Unit price, stock, and line total show `—`, the discount input is disabled, and the line says it is awaiting a warehouse. The order list also asks for a warehouse. Pending lines have no stock cap.
+
+Selecting a warehouse loads that warehouse's stock and applies it to every current line. The first price returned for a line becomes its accepted unit price.
+
+### After a warehouse is selected
+
+Search still does not send a warehouse id. Adding a new variant loads stock for the selected warehouse and matches it to the lines on the order.
+
+- The accepted unit price stays as the admin left it when the warehouse changes. A different server price is shown beside it and is applied only after **Use {price}**.
+- Quantity is not reduced when stock is lower. The line shows `Only N available` or `This item is out of stock.` Create Order stays disabled until the quantity is within stock.
+- Quantity cannot be typed or stepped above the known available stock. A hint appears for a few seconds if the typed value is too high.
+- A variant with no stock row is marked unavailable and stays on the order. Add is disabled for that variant. Decreasing an unavailable line to 0 removes it.
+- Add is disabled when the line is already at the available quantity, with the stock message as the tooltip.
+
+Clearing the warehouse returns every line to pending: accepted price, discount, and stock are dropped.
+
+### Discounts
+
+Each line has its own discount, a currency amount from `0` up to that line's total (`quantity × unit price`). The discount input is disabled while the line is pending, validating, unavailable, or has a zero total. A discount above the line total is marked invalid and blocks Create Order.
+
+The summary discount is the sum of the line discounts. The final total is `subtotal − discount` and never goes below `$0.00`. Money is rounded to cents.
+
+### Create Order
+
+Create Order is enabled only when all of these are true:
+
+- the order has at least one line
+- a warehouse is selected
+- warehouse stock has loaded without error
+- every line is valid (known stock, accepted price matches the server, quantity within stock, not unavailable)
+- every line discount is within that line's total
+- a submission is not already in progress
+
+`POST /orders` compares each line's `unit_price` and `quantity` with the current stock row. The server price is authoritative. A `409` can include `stock_changed`, `price_changed`, and `unavailable` for the same line, matched by product and variant. The lines stay on the order with the admin's quantity and accepted price. A failed request does not clear the order. A successful create clears the lines and shows a confirmation toast. The warehouse selection stays.
 
 ## Stale requests
 
-Search and warehouse validation each keep an `AbortController` plus a request id. A newer search or warehouse selection aborts the previous request. If an older response still arrives, the request id does not match and the response is ignored. A previous warehouse's price and stock are cleared as soon as the selection changes, so they cannot leak into the new warehouse.
+Product search and warehouse stock each keep an `AbortController` and a request id. A newer search or warehouse selection aborts the previous request. A late response whose id no longer matches is ignored. Changing or clearing the warehouse drops the previous price and stock immediately, so they cannot leak into the next selection.
 
-## Pending lines
+## API
 
-Products can be added to the order before a warehouse is selected. Lines in this state are marked **pending**: they show `—` for price, stock, and total, and display an "Awaiting warehouse" notice. The discount input and the summary totals are hidden while any line is pending. Create Order is disabled with the message "Select a warehouse to load prices and stock."
+The browser calls these paths under `/api`. Delays are applied on the server.
 
-As soon as a warehouse is selected, all pending lines are sent to `POST /warehouse-stock/validate` together. Clearing the warehouse resets every existing line back to pending.
+| Method | Path | Delay | Purpose |
+| --- | --- | --- | --- |
+| GET | `/warehouses` | — | Warehouse list |
+| GET | `/products?search=` | 500–1000ms | Catalog search. Name match only; no price or stock |
+| GET | `/warehouses/:id/stock` | 700–1200ms | Stock and price rows for one warehouse |
+| POST | `/orders` | 800–1500ms | Create an order. `409` when stock or price no longer matches |
+| GET | `/catalog` | — | Full product catalog for Server Controls |
+| GET, PATCH | `/dev-settings` | — | Read or toggle simulated API failures |
+| GET | `/warehouseStock?warehouse_id=&product_id=&variant_id=` | — | One stock row for Server Controls |
+| PATCH | `/warehouseStock/:id` | — | Update available quantity and price |
+| POST | `/warehouseStock` | — | Create a stock row |
 
-## Warehouse revalidation
+`GET /products` and `POST /orders` replace the default JSON Server handlers. `GET /warehouses/:id/stock` returns every stock row for that warehouse:
 
-Search does not send a warehouse id. Adding a variant when a warehouse is already selected calls `POST /warehouse-stock/validate` for the lines in the order. The first price returned for a new line becomes the accepted unit price. Changing warehouse sends only the current order lines to the same endpoint. After that, the accepted `unitPrice` and `quantity` stay as the admin left them.
+```json
+[
+  {
+    "product_id": 1,
+    "variant_id": 2,
+    "available_quantity": 4,
+    "price": 30
+  }
+]
+```
 
-- Lower stock is shown as `Only N available`. Quantity is not reduced.
-- A different price is shown next to the accepted price. It is not applied until the admin clicks **Use current price**.
-- A variant with no stock row is marked unavailable and stays on the order.
-- Create Order stays disabled until every line is valid, the discount is within the subtotal, and no validation request is in flight.
+The client keeps only the rows that match lines currently on the order. A line with no matching row is unavailable.
 
-## Server validation
+Order body:
 
-`POST /orders` compares each submitted `unit_price` and `quantity` with the current JSON Server stock row. The server price is authoritative. A `409` lists `stock_changed`, `price_changed`, and `unavailable` errors. The UI matches them by `productId + variantId`, leaves the lines in place, and keeps the admin's quantity and accepted price. After the admin corrects the line, they can submit again. A failed request never clears the order. The order resets only after a successful create.
+```json
+{
+  "warehouse_id": 1,
+  "discount": 2,
+  "items": [
+    {
+      "product_id": 1,
+      "variant_id": 2,
+      "quantity": 1,
+      "unit_price": 30,
+      "discount": 2
+    }
+  ]
+}
+```
 
-## Seeded acceptance path
+`discount` must equal the sum of item discounts. An item discount cannot exceed `quantity × unit_price`. Either violation returns `400`. An empty item list also returns `400`.
 
-| Warehouse | Premium Bag / Large |
-| --- | --- |
-| Warehouse A | 12 available, $4.50 |
-| Warehouse B | 2 available, $5.00 |
-| Warehouse C | 8 available, $4.50 |
+Conflict body (`409`):
 
-1. Search `bag` without selecting a warehouse. The Add button is enabled. Add Premium Bag / Large. The line appears in **pending** state — price, stock, and totals show `—` and the "Awaiting warehouse" notice is displayed.
-2. Select Warehouse A. All pending lines are validated immediately. The line gains Warehouse A's stock (12) and price ($4.50). Add the same variant again — quantity becomes 2 and a toast says the item was already in the order.
-3. Switch to Warehouse B. Only the existing line is revalidated. Stock stays sufficient; the price change to $5.00 is shown without replacing $4.50. Create Order is disabled until the price is accepted or the warehouse changes.
-4. Switch to Warehouse C. The line is validated again. Warehouse B's $5.00 price does not remain. Warehouse C still matches the accepted $4.50, so the line is valid.
-5. Clear the warehouse selection. The line returns to pending and the totals hide again. Re-select Warehouse C — the line validates back to valid.
-6. Open Server Controls, choose Warehouse C / Premium Bag / Large, set available quantity to 1 and price to $5.50, then update server state.
-7. Submit. The API returns `stock_changed` and `price_changed` on that line. The line stays visible.
-8. Set quantity to 1 and click **Use current price**, then submit again. The order is created and the form resets.
+```json
+{
+  "message": "Order validation failed",
+  "errors": [
+    {
+      "product_id": 1,
+      "variant_id": 2,
+      "type": "stock_changed",
+      "requested_quantity": 4,
+      "available_quantity": 1
+    },
+    {
+      "product_id": 1,
+      "variant_id": 2,
+      "type": "price_changed",
+      "old_price": 30,
+      "new_price": 5.5
+    }
+  ]
+}
+```
 
-## Other assumptions
+`unavailable` has `product_id`, `variant_id`, and `type` only. A successful create returns `201` and appends the order to `server/db.json`.
 
-- Search is warehouse-independent and can be used at any time. A line can be added before a warehouse is selected; it sits in **pending** state (no price or stock) until a warehouse is chosen. Add is disabled only when that variant is already at the warehouse's available quantity or is unavailable.
-- Duplicate adds increment quantity by 1. While a line is pending there is no stock cap. Uniqueness is `productId + variantId`.
-- Discount is a currency amount, defaults to 0, and must be between 0 and the subtotal. The displayed final total never goes below $0.00.
-- The task mentions line discounts but the provided order payload only has an order-level `discount` field. This implementation uses an order-level discount. Each line shows `—` in the Discount column.
-- Stock is fetched via `POST /warehouse-stock/validate` rather than the suggested `GET /warehouses/:id/stock`. This lets the server return only the variants currently in the order instead of the full warehouse catalog, which keeps the response small and avoids any client-side filtering.
-- The order payload includes `unit_price` per line (not in the doc example). The server uses it to detect `price_changed` conflicts on submit.
-- Money is rounded to cents in `format-money.ts` and `order.ts`.
-- There is no authentication, customer form, or admin dashboard.
+Simulated failures return `500` while the matching dev setting is on:
+
+- product search: `Unable to load products.`
+- warehouse stock: `Unable to validate products for this warehouse.`
+- order submit: `Unable to create order.`
+
+## Seed data
+
+`server/db.json` ships three warehouses (A, B, and C) and five products. Premium Bag / Large is a useful conflict example:
+
+| Warehouse | Available | Price |
+| --- | ---: | ---: |
+| A | 4 | $30.00 |
+| B | 2 | $5.00 |
+| C | 8 | $4.50 |
+
+Premium Bag / Small exists in A (2 at $2.00) and B (0 at $3.50). Warehouse C has no Small row, so that variant is unavailable there.
+
+1. Search `bag` and add Premium Bag / Large before choosing a warehouse. The line is pending.
+2. Select Warehouse A. The line takes stock 4 and price $30.00.
+3. Add the same variant again. Quantity becomes 2, and a toast says it was already in the order.
+4. Switch to Warehouse B. Stock is still enough for quantity 2. The price difference ($5.00 versus the accepted $30.00) is shown, and Create Order stays disabled until that price is accepted.
+5. Switch to Warehouse C. Stock is 8 and the server price is $4.50. The accepted $30.00 remains until the admin accepts $4.50.
+6. Open Server Controls, choose Warehouse C / Premium Bag / Large, set quantity to 1 and price to $5.50, and update the server.
+7. Submit. The API returns `stock_changed` and `price_changed`. The line stays.
+8. Set quantity to 1, accept $5.50, and submit again. The order is created and the lines clear.
+
+## Code layout
+
+```text
+src/pages/orders/create          route page
+src/components/pages/orders      presentational sections
+src/components/ui                shared card and API failure notice
+src/composables/order-builder    order state, validation, submit
+src/composables                  search, click-outside
+src/composables/server-controls  stock editor and failure flags
+src/services/<feature>           API, DTO mapping, feature errors
+src/services/api                 shared fetch client
+src/helpers                      money, debounce, stock copy
+src/types                        shared domain types
+server                           JSON Server, routes, seed data
+```
+
+`useOrderBuilder` is the boundary for the order. Section components take props and emit events. They do not call the API or change order state.
+
+Services are grouped by feature (`products`, `warehouses`, `stock`, `orders`, `dev-settings`). Each feature exports its public functions from `index.ts`. Pricing, line validation, and the order payload live in `services/orders/helpers`. Generic helpers such as cent rounding and debounce stay in `src/helpers`.
